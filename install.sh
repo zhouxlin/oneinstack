@@ -54,6 +54,8 @@ Show_Help() {
   --apache_mpm_option [1-3]   Apache2.4 MPM, 1(default): event, 2: prefork, 3: worker
   --php_option [1-15]         Install PHP version
   --mphp_ver [53~85]          Install another PHP version (PATH: ${php_install_dir}\${mphp_ver})
+  --mphp_name [name]          Instance suffix for --mphp_ver, e.g. 'b' installs a second copy of
+                              the same version (PATH: ${php_install_dir}\${mphp_ver}b)
   --mphp_addons               Only install another PHP addons
   --phpcache_option [1-4]     Install PHP opcode cache, default: 1 opcache
   --php_extensions [ext name] Install PHP extensions, include zendguardloader,ioncube,
@@ -80,7 +82,7 @@ Show_Help() {
   "
 }
 ARG_NUM=$#
-TEMP=`getopt -o hvV --long help,version,nginx_option:,apache,apache_mode_option:,apache_mpm_option:,php_option:,mphp_ver:,mphp_addons,phpcache_option:,php_extensions:,nodejs,tomcat_option:,jdk_option:,db_option:,dbrootpwd:,dbclickhousepwd:,dbinstallmethod:,pureftpd,redis,valkey,memcached,clickhouse,phpmyadmin,ssh_port:,firewall,md5sum,reboot -- "$@" 2>/dev/null`
+TEMP=`getopt -o hvV --long help,version,nginx_option:,apache,apache_mode_option:,apache_mpm_option:,php_option:,mphp_ver:,mphp_name:,mphp_addons,phpcache_option:,php_extensions:,nodejs,tomcat_option:,jdk_option:,db_option:,dbrootpwd:,dbclickhousepwd:,dbinstallmethod:,pureftpd,redis,valkey,memcached,clickhouse,phpmyadmin,ssh_port:,firewall,md5sum,reboot -- "$@" 2>/dev/null`
 [ $? != 0 ] && echo "${CWARNING}ERROR: unknown argument! ${CEND}" && Show_Help && exit 1
 eval set -- "${TEMP}"
 while :; do
@@ -160,6 +162,14 @@ while :; do
     shift 2
     [[ ! "${mphp_ver}" =~ ^5[3-6]$|^7[0-4]$|^8[0-5]$ ]] && {
       echo "${CWARNING}mphp_ver input error! Please only input number 53~85${CEND}"
+      exit 1
+    }
+    ;;
+  --mphp_name)
+    mphp_name=$2
+    shift 2
+    [[ ! "${mphp_name}" =~ ^[A-Za-z][A-Za-z0-9_]{0,15}$ ]] && {
+      echo "${CWARNING}mphp_name input error! Please use letters/numbers/underscore, start with a letter, max 16 chars${CEND}"
       exit 1
     }
     ;;
@@ -340,6 +350,13 @@ while :; do
     ;;
   esac
 done
+
+if [ -n "${mphp_name}" ] && [ -z "${mphp_ver}" ]; then
+  echo "${CWARNING}--mphp_name requires --mphp_ver, e.g. --mphp_ver 74 --mphp_name b${CEND}"
+  exit 1
+fi
+# instance id: 74 + b => 74b (PATH: ${php_install_dir}74b, service: php74b-fpm, socket: /dev/shm/php74b-cgi.sock)
+[ "${mphp_flag}" == 'y' ] && mphp_inst="${mphp_ver}${mphp_name}"
 
 if [ "${db_option}" == '15' ]; then
   [ "${dbinstallmethod}" != '1' ] && {
@@ -1054,7 +1071,7 @@ send_install_stat() {
   local ev="$1"
   local dur="${2:-0}"
   (curl -fsS --connect-timeout 2 -m 3 -X POST -H "Content-Type: application/json" \
-    -d "{\"event\":\"${ev}\",\"install_id\":\"${install_stat_id}\",\"os\":\"${Platform}-${VERSION_ID:-${VERSION_MAIN_ID}}\",\"arch\":\"${ARCH}\",\"region\":\"${OUTIP_STATE}\",\"nginx\":\"${nginx_option:-0}\",\"apache\":\"${apache_flag:-n}\",\"caddy\":\"${caddy_flag:-n}\",\"php\":\"${php_option:-0}\",\"mphp\":\"${mphp_ver:-}\",\"phpcache\":\"${phpcache_option:-0}\",\"php_exts\":\"${php_extensions:-}\",\"db\":\"${db_option:-}\",\"db_method\":\"${dbinstallmethod:-0}\",\"tomcat\":\"${tomcat_option:-0}\",\"jdk\":\"${jdk_option:-0}\",\"redis\":\"${redis_flag:-n}\",\"valkey\":\"${valkey_flag:-n}\",\"memcached\":\"${memcached_flag:-n}\",\"clickhouse\":\"${clickhouse_flag:-n}\",\"nodejs\":\"${nodejs_flag:-n}\",\"pureftpd\":\"${pureftpd_flag:-n}\",\"phpmyadmin\":\"${phpmyadmin_flag:-n}\",\"duration_min\":${dur}}" \
+    -d "{\"event\":\"${ev}\",\"install_id\":\"${install_stat_id}\",\"os\":\"${Platform}-${VERSION_ID:-${VERSION_MAIN_ID}}\",\"arch\":\"${ARCH}\",\"region\":\"${OUTIP_STATE}\",\"nginx\":\"${nginx_option:-0}\",\"apache\":\"${apache_flag:-n}\",\"caddy\":\"${caddy_flag:-n}\",\"php\":\"${php_option:-0}\",\"mphp\":\"${mphp_ver:-}${mphp_name:-}\",\"phpcache\":\"${phpcache_option:-0}\",\"php_exts\":\"${php_extensions:-}\",\"db\":\"${db_option:-}\",\"db_method\":\"${dbinstallmethod:-0}\",\"tomcat\":\"${tomcat_option:-0}\",\"jdk\":\"${jdk_option:-0}\",\"redis\":\"${redis_flag:-n}\",\"valkey\":\"${valkey_flag:-n}\",\"memcached\":\"${memcached_flag:-n}\",\"clickhouse\":\"${clickhouse_flag:-n}\",\"nodejs\":\"${nodejs_flag:-n}\",\"pureftpd\":\"${pureftpd_flag:-n}\",\"phpmyadmin\":\"${phpmyadmin_flag:-n}\",\"duration_min\":${dur}}" \
     "${mirror_link}/api/stat" >/dev/null 2>&1 || true) &
 }
 send_install_stat "start" 0
@@ -1409,12 +1426,12 @@ PHP_addons() {
 [ "${mphp_addons_flag}" != 'y' ] && [ -e "${php_install_dir}/bin/phpize" ] && PHP_addons
 
 if [ "${mphp_flag}" == 'y' ]; then
+  php_default_install_dir=${php_install_dir}
   . include/mphp.sh
   Install_MPHP 2>&1 | tee -a ${oneinstack_dir}/install.log
-  orig_php_install_dir=${php_install_dir}
-  php_install_dir=${php_install_dir}${mphp_ver}
+  php_install_dir=${php_default_install_dir}${mphp_inst}
   PHP_addons
-  php_install_dir=${orig_php_install_dir}
+  php_install_dir=${php_default_install_dir}
 fi
 
 # JDK
@@ -1543,6 +1560,9 @@ echo "Total OneinStack Install Time: ${CQUESTION}${installTime}${CEND} minutes"
 [ "${db_option}" == '14' ] && echo "$(printf "%-32s" "MongoDB user:")${CMSG}root${CEND}"
 [ "${db_option}" == '14' ] && echo "$(printf "%-32s" "MongoDB password:")${CMSG}${dbmongopwd}${CEND}"
 [[ "${php_option}" =~ ^[1-9]$|^1[0-5]$ ]] && echo -e "\n$(printf "%-32s" "PHP install dir:")${CMSG}${php_install_dir}${CEND}"
+[ "${mphp_flag}" == 'y' ] && echo "$(printf "%-32s" "PHP${mphp_inst} install dir:")${CMSG}${php_install_dir}${mphp_inst}${CEND}"
+[ "${mphp_flag}" == 'y' ] && echo "$(printf "%-32s" "PHP${mphp_inst} service:")${CMSG}php${mphp_inst}-fpm${CEND}"
+[ "${mphp_flag}" == 'y' ] && echo "$(printf "%-32s" "PHP${mphp_inst} socket:")${CMSG}/dev/shm/php${mphp_inst}-cgi.sock${CEND}"
 [ "${phpcache_option}" == '1' ] && echo "$(printf "%-32s" "Opcache Control Panel URL:")${CMSG}http://${IPADDR}/ocp.php${CEND}"
 [ "${phpcache_option}" == '2' ] && echo "$(printf "%-32s" "APC Control Panel URL:")${CMSG}http://${IPADDR}/apc.php${CEND}"
 [ "${phpcache_option}" == '3' -a -e "${php_install_dir}/etc/php.d/04-xcache.ini" ] && echo "$(printf "%-32s" "xcache Control Panel URL:")${CMSG}http://${IPADDR}/xcache${CEND}"

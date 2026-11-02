@@ -39,6 +39,7 @@ Show_Help() {
   --mongodb                     Uninstall MongoDB
   --php                         Uninstall PHP (PATH: ${php_install_dir})
   --mphp_ver [53~85]            Uninstall another PHP version (PATH: ${php_install_dir}\${mphp_ver})
+  --mphp_name [name]            Instance suffix used with --mphp_ver (PATH: ${php_install_dir}\${mphp_ver}${mphp_name})
   --allphp                      Uninstall all PHP
 
   --phpcache                    Uninstall PHP opcode cache
@@ -57,7 +58,7 @@ Show_Help() {
 }
 
 ARG_NUM=$#
-TEMP=`getopt -o hvVq --long help,version,quiet,all,web,mysql,postgresql,mongodb,php,mphp_ver:,allphp,phpcache,php_extensions:,pureftpd,redis,valkey,memcached,clickhouse,phpmyadmin,nodejs -- "$@" 2>/dev/null`
+TEMP=`getopt -o hvVq --long help,version,quiet,all,web,mysql,postgresql,mongodb,php,mphp_ver:,mphp_name:,allphp,phpcache,php_extensions:,pureftpd,redis,valkey,memcached,clickhouse,phpmyadmin,nodejs -- "$@" 2>/dev/null`
 
 [ $? != 0 ] && echo "${CWARNING}ERROR: unknown argument! ${CEND}" && Show_Help && exit 1
 eval set -- "${TEMP}"
@@ -106,6 +107,10 @@ while :; do
     --mphp_ver)
       mphp_ver=$2; mphp_flag=y; shift 2
       [[ ! "${mphp_ver}" =~ ^5[3-6]$|^7[0-4]$|^8[0-5]$ ]] && { echo "${CWARNING}mphp_ver input error! Please only input number 53~85${CEND}"; exit 1; }
+      ;;
+    --mphp_name)
+      mphp_name=$2; shift 2
+      [[ ! "${mphp_name}" =~ ^[A-Za-z][A-Za-z0-9_]{0,15}$ ]] && { echo "${CWARNING}mphp_name input error! Please use letters/numbers/underscore, start with a letter, max 16 chars${CEND}"; exit 1; }
       ;;
     --allphp)
       allphp_flag=y; shift 1
@@ -169,6 +174,17 @@ while :; do
       ;;
   esac
 done
+
+# --mphp_name turns --mphp_ver into a named instance id (74 + b => 74b), matching install.sh:
+# PATH ${php_install_dir}74b and service php74b-fpm
+if [ -n "${mphp_name}" ]; then
+  if [ -z "${mphp_ver}" ]; then
+    echo "${CWARNING}--mphp_name requires --mphp_ver, e.g. --mphp_ver 74 --mphp_name b${CEND}"
+    exit 1
+  fi
+  mphp_flag=y
+  mphp_ver=${mphp_ver}${mphp_name}
+fi
 
 Uninstall_status() {
   if [ "${quiet_flag}" != 'y' ]; then
@@ -312,6 +328,15 @@ Print_ALLPHP() {
     [ -e "/etc/init.d/php${php_ver}-fpm" ] && echo /etc/init.d/php${php_ver}-fpm
     [ -e "/lib/systemd/system/php${php_ver}-fpm.service" ] && echo /lib/systemd/system/php${php_ver}-fpm.service
   done
+  # named instances (install.sh --mphp_ver X --mphp_name NAME)
+  for unit in /lib/systemd/system/php*-fpm.service; do
+    [ -e "${unit}" ] || continue
+    [ "${unit##*/}" == 'php-fpm.service' ] && continue
+    php_dir=$(awk -F'--fpm-config ' '/^ExecStart=/{print $2}' "${unit}" | sed 's@/etc/php-fpm.conf$@@')
+    [[ "${php_dir}" =~ ^${php_install_dir}(5[3-6]|7[0-4]|8[0-5])$ ]] && continue
+    [ -n "${php_dir}" ] && echo ${php_dir}
+    echo ${unit}
+  done
   [ -e "${imagick_install_dir}" ] && echo ${imagick_install_dir}
   [ -e "${gmagick_install_dir}" ] && echo ${gmagick_install_dir}
   [ -e "${curl_install_dir}" ] && echo ${curl_install_dir}
@@ -343,6 +368,20 @@ Uninstall_ALLPHP() {
     [ -e "/lib/systemd/system/php${php_ver}-fpm.service" ] && { systemctl stop php${php_ver}-fpm > /dev/null 2>&1; systemctl disable php${php_ver}-fpm > /dev/null 2>&1; rm -f /lib/systemd/system/php${php_ver}-fpm.service; }
     [ -e "${php_install_dir}${php_ver}" ] && { rm -rf ${php_install_dir}${php_ver}; echo "${CMSG}PHP${php_ver} uninstall completed! ${CEND}"; }
   done
+
+  # named instances (install.sh --mphp_ver X --mphp_name NAME)
+  for unit in /lib/systemd/system/php*-fpm.service; do
+    [ -e "${unit}" ] || continue
+    [ "${unit##*/}" == 'php-fpm.service' ] && continue
+    php_dir=$(awk -F'--fpm-config ' '/^ExecStart=/{print $2}' "${unit}" | sed 's@/etc/php-fpm.conf$@@')
+    [[ "${php_dir}" =~ ^${php_install_dir}(5[3-6]|7[0-4]|8[0-5])$ ]] && continue
+    svc=${unit##*/}; svc=${svc%.service}
+    systemctl stop ${svc} > /dev/null 2>&1
+    systemctl disable ${svc} > /dev/null 2>&1
+    rm -f ${unit}
+    [ -n "${php_dir}" -a -d "${php_dir}" ] && { rm -rf ${php_dir}; echo "${CMSG}PHP ${php_dir} uninstall completed! ${CEND}"; }
+  done
+  systemctl daemon-reload > /dev/null 2>&1
 
   [ -e "${imagick_install_dir}" ] && rm -rf ${imagick_install_dir}
   [ -e "${gmagick_install_dir}" ] && rm -rf ${gmagick_install_dir}

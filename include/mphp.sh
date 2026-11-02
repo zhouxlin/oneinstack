@@ -9,14 +9,17 @@
 #       https://github.com/oneinstack/oneinstack
 
 Install_MPHP() {
+  # mphp_name allows several copies of the same PHP version, e.g.
+  # --mphp_ver 74 --mphp_name b => /usr/local/php74b, php74b-fpm, /dev/shm/php74b-cgi.sock
+  local mphp_inst="${mphp_ver}${mphp_name}"
   if [ "${apache_mode_option}" == '2' ] || [ -e "${apache_install_dir}/modules/libphp5.so" ] || [ -e "${apache_install_dir}/modules/libphp7.so" ] || [ -e "${apache_install_dir}/modules/libphp.so" ]; then
     echo "${CWARNING}To use the multiple PHP versions, You need to use PHP-FPM! ${CEND}"
   else
-    if [ -e "${php_install_dir}${mphp_ver}/bin/phpize" ]; then
-      echo "${CWARNING}PHP${mphp_ver} already installed! ${CEND}"
+    if [ -e "${php_install_dir}${mphp_inst}/bin/phpize" ]; then
+      echo "${CWARNING}PHP${mphp_inst} already installed! ${CEND}"
     else
       [ -e "/lib/systemd/system/php-fpm.service" ] && /bin/mv /lib/systemd/system/php-fpm.service{,_bk}
-      php_install_dir=${php_install_dir}${mphp_ver}
+      php_install_dir=${php_install_dir}${mphp_inst}
       case "${mphp_ver}" in
         53)
           . include/php-5.3.sh
@@ -81,16 +84,16 @@ Install_MPHP() {
       esac
       if [ -e "${php_install_dir}/sbin/php-fpm" ]; then
         systemctl stop php-fpm 2>/dev/null || kill `cat ${php_install_dir}/var/run/php-fpm.pid 2>/dev/null` 2>/dev/null || true
-        sed -i "s@/dev/shm/php-cgi.sock@/dev/shm/php${mphp_ver}-cgi.sock@" ${php_install_dir}/etc/php-fpm.conf
-        [ -e "/lib/systemd/system/php-fpm.service" ] && /bin/mv /lib/systemd/system/php-fpm.service /lib/systemd/system/php${mphp_ver}-fpm.service
+        sed -i "s@/dev/shm/php-cgi.sock@/dev/shm/php${mphp_inst}-cgi.sock@" ${php_install_dir}/etc/php-fpm.conf
+        [ -e "/lib/systemd/system/php-fpm.service" ] && /bin/mv /lib/systemd/system/php-fpm.service /lib/systemd/system/php${mphp_inst}-fpm.service
         if [ -e "/lib/systemd/system/php-fpm.service_bk" ]; then
           /bin/mv /lib/systemd/system/php-fpm.service{_bk,}
           systemctl enable php-fpm 2>/dev/null || true
           systemctl start php-fpm 2>/dev/null || true
         fi
         systemctl daemon-reload 2>/dev/null || true
-        systemctl enable php${mphp_ver}-fpm 2>/dev/null || true
-        systemctl start php${mphp_ver}-fpm 2>/dev/null || ${php_install_dir}/sbin/php-fpm
+        systemctl enable php${mphp_inst}-fpm 2>/dev/null || true
+        systemctl start php${mphp_inst}-fpm 2>/dev/null || ${php_install_dir}/sbin/php-fpm
         sed -i "s@${php_install_dir}/bin:@@" /etc/profile
       fi
     fi

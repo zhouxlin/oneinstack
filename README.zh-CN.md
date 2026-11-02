@@ -59,6 +59,20 @@ screen -S oneinstack
 ~/oneinstack/install.sh --mphp_ver 54
 ```
 
+## 如何安装同版本的第二个PHP实例
+
+使用`--mphp_name`给实例加后缀，同一版本可以装到另一个目录，拥有独立的service和socket：
+
+```bash
+~/oneinstack/install.sh --mphp_ver 74 --mphp_name b --phpcache_option 1
+```
+
+- 安装目录：`/usr/local/php74b`
+- 服务名：`php74b-fpm`
+- socket：`/dev/shm/php74b-cgi.sock`
+- 绑定站点：`~/oneinstack/vhost.sh`（选择`PHP instance 74b`）或 `~/oneinstack/vhost.sh --mphp_ver 74 --mphp_name b`
+- 卸载：`~/oneinstack/uninstall.sh --mphp_ver 74 --mphp_name b`
+
 ## 如何添加扩展
 
 ```bash

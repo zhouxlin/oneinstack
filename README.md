@@ -61,6 +61,22 @@ If you need to modify the directory (installation, data storage, Nginx logs), mo
 
 ```
 
+## How to install a second copy of the same PHP version
+
+Use `--mphp_name` to give the instance a suffix, so the same PHP version can be built into
+another directory with its own service and socket:
+
+```bash
+~/oneinstack/install.sh --mphp_ver 74 --mphp_name b --phpcache_option 1
+```
+
+- install dir: `/usr/local/php74b`
+- service: `php74b-fpm`
+- socket: `/dev/shm/php74b-cgi.sock`
+- bind a site to it: `~/oneinstack/vhost.sh` (choose `PHP instance 74b`) or
+  `~/oneinstack/vhost.sh --mphp_ver 74 --mphp_name b`
+- uninstall it: `~/oneinstack/uninstall.sh --mphp_ver 74 --mphp_name b`
+
 ## How to add Extensions
 
 ```bash

@@ -35,6 +35,7 @@ Show_Help() {
   --quiet, -q                 quiet operation
   --list, -l                  List Virtualhost
   --mphp_ver [53~85]          Use another PHP version (PATH: /usr/local/php${mphp_ver})
+  --mphp_name [name]          Instance suffix used with --mphp_ver, e.g. b (PATH: /usr/local/php${mphp_ver}b)
   --proxy                     Use proxy
   --add                       Add Virtualhost
   --delete, --del             Delete Virtualhost
@@ -46,7 +47,7 @@ Show_Help() {
 }
 
 ARG_NUM=$#
-TEMP=`getopt -o hql --long help,quiet,list,proxy,mphp_ver:,add,delete,del,httponly,selfsigned,letsencrypt,dnsapi -- "$@" 2>/dev/null`
+TEMP=`getopt -o hql --long help,quiet,list,proxy,mphp_ver:,mphp_name:,add,delete,del,httponly,selfsigned,letsencrypt,dnsapi -- "$@" 2>/dev/null`
 [ $? != 0 ] && echo "${CWARNING}ERROR: unknown argument! ${CEND}" && Show_Help && exit 1
 eval set -- "${TEMP}"
 while :; do
@@ -64,6 +65,10 @@ while :; do
     --mphp_ver)
       mphp_ver=$2; mphp_flag=y; shift 2
       [[ ! "${mphp_ver}" =~ ^5[3-6]$|^7[0-4]$|^8[0-5]$ ]] && { echo "${CWARNING}mphp_ver input error! Please only input number 53~85${CEND}"; unset mphp_ver mphp_flag; }
+      ;;
+    --mphp_name)
+      mphp_name=$2; shift 2
+      [[ ! "${mphp_name}" =~ ^[A-Za-z][A-Za-z0-9_]{0,15}$ ]] && { echo "${CWARNING}mphp_name input error! Please use letters/numbers/underscore, start with a letter, max 16 chars${CEND}"; unset mphp_name; }
       ;;
     --proxy)
       proxy_flag=y; shift 1
@@ -106,6 +111,18 @@ while :; do
       ;;
   esac
 done
+
+# --mphp_name turns --mphp_ver into a named instance id (74 + b => 74b), which is used
+# for both the socket /dev/shm/php74b-cgi.sock and the install path /usr/local/php74b
+if [ -n "${mphp_name}" ]; then
+  if [ -z "${mphp_ver}" ]; then
+    echo "${CWARNING}--mphp_name requires --mphp_ver, e.g. --mphp_ver 74 --mphp_name b${CEND}"
+    unset mphp_name
+  else
+    mphp_flag=y
+    mphp_ver=${mphp_ver}${mphp_name}
+  fi
+fi
 
 Choose_ENV() {
   if [ -e "${apache_install_dir}/bin/apachectl" ];then
@@ -413,6 +430,17 @@ What Are You Doing?
     if [ "${mphp_flag}" != 'y' ]; then
       PHP_detail_ver=`${php_install_dir}/bin/php-config --version`
       PHP_main_ver=${PHP_detail_ver%.*}
+      # named instances (install.sh --mphp_ver X --mphp_name NAME)
+      extra_php_insts=()
+      for sock in /dev/shm/php*-cgi.sock; do
+        [ -e "${sock}" ] || continue
+        inst=${sock##*/php}
+        inst=${inst%-cgi.sock}
+        case "${inst}" in
+          ''|53|54|55|56|70|71|72|73|74|80|81|82|83|84|85) continue ;;
+        esac
+        extra_php_insts+=("${inst}")
+      done
       while :; do echo
         echo 'Please select a version of the PHP:'
         echo -e "\t${CMSG} 0${CEND}. PHP ${PHP_main_ver} (default)"
@@ -431,10 +459,15 @@ What Are You Doing?
         [ -e "/dev/shm/php83-cgi.sock" ] && echo -e "\t${CMSG}13${CEND}. PHP 8.3"
         [ -e "/dev/shm/php84-cgi.sock" ] && echo -e "\t${CMSG}14${CEND}. PHP 8.4"
         [ -e "/dev/shm/php85-cgi.sock" ] && echo -e "\t${CMSG}15${CEND}. PHP 8.5"
+        i=16
+        for inst in "${extra_php_insts[@]}"; do
+          echo -e "\t${CMSG}${i}${CEND}. PHP instance ${inst}"
+          i=$((i+1))
+        done
         read -e -p "Please input a number:(Default 0 press Enter) " php_option
         php_option=${php_option:-0}
-        if [[ ! ${php_option} =~ ^[0-9]$|^1[0-5]$ ]]; then
-          echo "${CWARNING}input error! Please only input number 0~15${CEND}"
+        if [[ ! ${php_option} =~ ^[0-9]+$ ]] || [ ${php_option} -gt $((15 + ${#extra_php_insts[@]})) ]; then
+          echo "${CWARNING}input error! Please only input number 0~$((15 + ${#extra_php_insts[@]}))${CEND}"
         else
           break
         fi
@@ -455,6 +488,9 @@ What Are You Doing?
     [ "${php_option}" == '13' ] && mphp_ver=83
     [ "${php_option}" == '14' ] && mphp_ver=84
     [ "${php_option}" == '15' ] && mphp_ver=85
+    if [ -n "${php_option}" ] && [ "${php_option}" -gt 15 ]; then
+      mphp_ver=${extra_php_insts[$((php_option-16))]}
+    fi
     [ ! -e "/dev/shm/php${mphp_ver}-cgi.sock" ] && unset mphp_ver
   fi
 
